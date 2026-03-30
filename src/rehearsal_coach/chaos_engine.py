@@ -106,6 +106,10 @@ class ChaosEngine:
         if self.active_event_count >= self.max_concurrent_events:
             return None
 
+    def inject_if_needed(self, snapshot: PerformanceSnapshot) -> Optional[ChaosEvent]:
+        if self.event_count >= self.max_events_per_session:
+            return None
+
         if self._is_cooldown(snapshot.timestamp_sec):
             return None
 
@@ -125,6 +129,8 @@ class ChaosEngine:
 
     def _expire_events(self, now_sec: int) -> None:
         self._active_events = [e for e in self._active_events if e.ends_at_sec > now_sec]
+
+        return event
 
     def _is_cooldown(self, now_sec: int) -> bool:
         if not self._event_log:
@@ -196,6 +202,7 @@ class ResilienceScorer:
             r.decision_clarity,
         ]
         normalized = sum(dimensions) / 25
+        normalized = sum(dimensions) / (5 * 5)
         score = round(normalized * 100, 1)
 
         # Bonus/penalty rules
