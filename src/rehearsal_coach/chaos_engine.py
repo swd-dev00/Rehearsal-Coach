@@ -19,6 +19,18 @@ class PerformanceSnapshot:
     claim_without_evidence_count: int
     slide_dependency_pct: float
 
+    def __post_init__(self) -> None:
+        _ensure_non_negative("timestamp_sec", self.timestamp_sec)
+        _ensure_range("eye_contact_pct", self.eye_contact_pct, 0, 100)
+        _ensure_non_negative("speaking_wpm", self.speaking_wpm)
+        _ensure_non_negative("tone_variance", self.tone_variance)
+        _ensure_non_negative("filler_words_per_min", self.filler_words_per_min)
+        _ensure_range("jargon_density_pct", self.jargon_density_pct, 0, 100)
+        _ensure_range("confidence_score", self.confidence_score, 0, 1)
+        _ensure_range("engagement_score", self.engagement_score, 0, 1)
+        _ensure_non_negative("claim_without_evidence_count", self.claim_without_evidence_count)
+        _ensure_range("slide_dependency_pct", self.slide_dependency_pct, 0, 100)
+
 
 @dataclass(frozen=True)
 class ChaosEvent:
@@ -37,6 +49,26 @@ class RecoverySnapshot:
     presence_stability: int  # 0-5
     decision_clarity: int  # 0-5
 
+    def __post_init__(self) -> None:
+        _ensure_non_negative("recovery_seconds", self.recovery_seconds)
+        for field_name, value in [
+            ("message_integrity", self.message_integrity),
+            ("language_control", self.language_control),
+            ("presence_stability", self.presence_stability),
+            ("decision_clarity", self.decision_clarity),
+        ]:
+            _ensure_range(field_name, value, 0, 5)
+
+
+@dataclass(frozen=True)
+class ActiveEvent:
+    event: ChaosEvent
+    started_at_sec: int
+
+    @property
+    def ends_at_sec(self) -> int:
+        return self.started_at_sec + self.event.recovery_window_sec
+
 
 class ChaosEngine:
     """Injects pressure events when user is too comfortable or vulnerable."""
@@ -47,14 +79,32 @@ class ChaosEngine:
         max_events_per_session: int = 6,
         max_concurrent_events: int = 2,
     ) -> None:
+        _ensure_non_negative("cooldown_sec", cooldown_sec)
+        _ensure_non_negative("max_events_per_session", max_events_per_session)
+        _ensure_non_negative("max_concurrent_events", max_concurrent_events)
+
         self.cooldown_sec = cooldown_sec
         self.max_events_per_session = max_events_per_session
         self.max_concurrent_events = max_concurrent_events
         self._event_log: List[tuple[int, ChaosEvent]] = []
+        self._active_events: List[ActiveEvent] = []
 
     @property
     def event_count(self) -> int:
         return len(self._event_log)
+
+    @property
+    def active_event_count(self) -> int:
+        return len(self._active_events)
+
+    def inject_if_needed(self, snapshot: PerformanceSnapshot) -> Optional[ChaosEvent]:
+        self._expire_events(snapshot.timestamp_sec)
+
+        if self.event_count >= self.max_events_per_session:
+            return None
+
+        if self.active_event_count >= self.max_concurrent_events:
+            return None
 
     def inject_if_needed(self, snapshot: PerformanceSnapshot) -> Optional[ChaosEvent]:
         if self.event_count >= self.max_events_per_session:
@@ -66,6 +116,20 @@ class ChaosEngine:
         event = self._select_event(snapshot)
         if event:
             self._event_log.append((snapshot.timestamp_sec, event))
+            self._active_events.append(ActiveEvent(event=event, started_at_sec=snapshot.timestamp_sec))
+        return event
+
+    def resolve_event(self, key: str) -> bool:
+        """Manually resolve an active event by key; returns True if removed."""
+        for idx, active in enumerate(self._active_events):
+            if active.event.key == key:
+                self._active_events.pop(idx)
+                return True
+        return False
+
+    def _expire_events(self, now_sec: int) -> None:
+        self._active_events = [e for e in self._active_events if e.ends_at_sec > now_sec]
+
         return event
 
     def _is_cooldown(self, now_sec: int) -> bool:
@@ -137,6 +201,7 @@ class ResilienceScorer:
             r.presence_stability,
             r.decision_clarity,
         ]
+        normalized = sum(dimensions) / 25
         normalized = sum(dimensions) / (5 * 5)
         score = round(normalized * 100, 1)
 
@@ -161,3 +226,13 @@ class ResilienceScorer:
         if seconds <= 15:
             return 1
         return 0
+
+
+def _ensure_non_negative(name: str, value: float) -> None:
+    if value < 0:
+        raise ValueError(f"{name} must be >= 0")
+
+
+def _ensure_range(name: str, value: float, low: float, high: float) -> None:
+    if value < low or value > high:
+        raise ValueError(f"{name} must be between {low} and {high}")
