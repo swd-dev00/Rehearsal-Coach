@@ -7,6 +7,13 @@ from .chaos_engine import (
     RecoverySnapshot,
     ResilienceScorer,
 )
+from .simulated_audience import (
+    AudiencePersona,
+    AudienceReport,
+    AudienceSimulator,
+    PersonaReaction,
+    SimulationInput,
+)
 
 __all__ = [
     "ChaosEngine",
@@ -14,4 +21,9 @@ __all__ = [
     "PerformanceSnapshot",
     "RecoverySnapshot",
     "ResilienceScorer",
+    "AudiencePersona",
+    "AudienceReport",
+    "AudienceSimulator",
+    "PersonaReaction",
+    "SimulationInput",
 ]
